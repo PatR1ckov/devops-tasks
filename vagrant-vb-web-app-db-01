@@ -1,0 +1,207 @@
+Vagrant.configure("2") do |config|
+  # DB01 — PostgreSQL
+  config.vm.define "db01" do |db|
+    db.vm.box = "ubuntu/jammy64"
+    db.vm.hostname = "db01"
+    db.vm.network "private_network", ip: "172.10.10.30"
+    db.vm.provider "virtualbox" do |vb|
+      vb.name = "db01"
+      vb.memory = 1024
+    end
+    db.vm.provision "shell", inline: <<-SHELL
+      sudo -i
+      sudo DEBIAN_FRONTEND=noninteractive apt update
+      sudo DEBIAN_FRONTEND=noninteractive apt upgrade -y
+      sudo DEBIAN_FRONTEND=noninteractive apt install -y curl ca-certificates postgresql-common
+      echo | /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh
+      sudo install -d /usr/share/postgresql-common/pgdg
+      sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
+      . /etc/os-release
+      sudo sh -c "echo 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $VERSION_CODENAME-pgdg main' > /etc/apt/sources.list.d/pgdg.list"
+      sudo DEBIAN_FRONTEND=noninteractive apt update
+      sudo DEBIAN_FRONTEND=noninteractive apt -y install postgresql      
+      
+      VERSION_DB=$(ls /etc/postgresql/ | head -n1)
+      sed -i "s/^#listen_addresses = .*/listen_addresses = '172.10.10.30'/" /etc/postgresql/${VERSION_DB}/main/postgresql.conf
+      echo "host    horilla_main    horilla    172.10.10.10/32    md5" >> /etc/postgresql/${VERSION_DB}/main/pg_hba.conf
+      echo "hostssl horilla_main    horilla    172.10.10.10/32    md5" >> /etc/postgresql/${VERSION_DB}/main/pg_hba.conf
+      sudo -u postgres psql -c "CREATE ROLE horilla LOGIN PASSWORD 'horilla';"
+      sudo -u postgres psql -c "CREATE DATABASE horilla_main OWNER horilla;"
+      systemctl restart postgresql
+    SHELL
+  end
+
+#############################################################################
+
+  # WEB01 — Traefik
+  config.vm.define "web01" do |web|
+    web.vm.box = "ubuntu/jammy64"
+    web.vm.hostname = "web01"
+    web.vm.network "private_network", ip: "172.10.10.20"
+    web.vm.provider "virtualbox" do |vb|
+      vb.name = "web01"
+      vb.memory = 512
+    end
+    web.vm.provision "shell", inline: <<-SHELL
+      sudo -i
+      sudo DEBIAN_FRONTEND=noninteractive apt update
+      sudo DEBIAN_FRONTEND=noninteractive apt upgrade -y
+      sudo DEBIAN_FRONTEND=noninteractive apt install -y wget
+      mkdir /home/vagrant/traefik
+      cd /home/vagrant/traefik
+      wget https://github.com/traefik/traefik/releases/download/v3.4.0/traefik_v3.4.0_linux_amd64.tar.gz
+      tar -zxvf traefik_v3.4.0_linux_amd64.tar.gz
+      cp ./traefik /usr/local/bin/traefik
+      chmod +x /usr/local/bin/traefik
+      echo "172.10.10.20 app.local" >> /etc/hosts
+
+
+      cat > /home/vagrant/traefik/traefik.yml <<EOF
+entryPoints:
+  web:
+    address: ":80"
+  websecure:
+    address: ":443"
+
+providers:
+  file:
+    filename: /home/vagrant/traefik/dynamic.yml
+    watch: true
+
+api:
+  dashboard: true
+  insecure: true
+EOF
+
+      cat > /home/vagrant/traefik/dynamic.yml <<'EOF'
+http:
+  routers:
+    app01-router:
+      rule: "Host(`app.local`)"
+      service: app01-service
+      entryPoints:
+        - web
+      middlewares: []
+
+  services:
+    app01-service:
+      loadBalancer:
+        servers:
+          - url: "http://172.10.10.10:8000"  # IP машины app01 и порт сервиса
+EOF
+
+      cat > /etc/systemd/system/traefik.service <<EOF
+[Unit]
+Description=Traefik Service
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/traefik --configFile=/home/vagrant/traefik/traefik.yml
+Restart=always
+User=root
+WorkingDirectory=/home/vagrant/traefik
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+      systemctl daemon-reexec
+      systemctl daemon-reload
+      systemctl enable traefik
+      systemctl start traefik
+    SHELL
+  end
+
+#############################################################################
+
+  # APP01 — Docker
+  config.vm.define "app01" do |app|
+    app.vm.box = "ubuntu/jammy64"
+    app.vm.hostname = "app01"
+    app.vm.network "private_network", ip: "172.10.10.10"
+    app.vm.provider "virtualbox" do |vb|
+      vb.name = "app01"
+      vb.memory = 512
+    end
+    app.vm.provision "shell", inline: <<-SHELL      
+      sudo -i
+      sudo DEBIAN_FRONTEND=noninteractive apt update
+      sudo DEBIAN_FRONTEND=noninteractive apt upgrade -y
+      sudo DEBIAN_FRONTEND=noninteractive apt-get install ca-certificates curl
+      sudo install -m 0755 -d /etc/apt/keyrings
+      sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+      sudo chmod a+r /etc/apt/keyrings/docker.asc
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" |   sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+      sudo DEBIAN_FRONTEND=noninteractive apt-get update
+      sudo DEBIAN_FRONTEND=noninteractive apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin -y
+      sudo systemctl restart dbus.service
+      sudo systemctl restart networkd-dispatcher.service
+      sudo systemctl restart unattended-upgrades.service
+      sudo systemctl restart user@1000.service
+      docker compose up -d --build
+
+      fallocate -l 2G /swapfile
+      chmod 600 /swapfile
+      mkswap /swapfile
+      swapon /swapfile
+      echo '/swapfile none swap sw 0 0' >> /etc/fstab
+      
+      mkdir /home/vagrant/horilla
+      cd /home/vagrant/horilla
+      git clone https://github.com/horilla-opensource/horilla.git
+      cd horilla/
+
+      cat > Dockerfile <<EOF
+FROM python:3.10-slim
+
+ENV PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential gcc libcairo2-dev libfreetype6-dev libjpeg-dev libxml2-dev libxslt1-dev libffi-dev \
+    libcairo2 libfreetype6 libjpeg62-turbo libxml2 libxslt1.1 libffi-dev \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+RUN chmod -R 777 /usr/local/lib/python3.10/site-packages/django/contrib/auth/migrations || true
+
+USER root
+
+EXPOSE 8000
+
+CMD ["sh", "/app/entrypoint.sh"]
+EOF
+      cat > docker-compose.yaml <<EOF
+version: '3.8'
+
+services:
+  horilla-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: horilla-container
+
+    ports:
+      - "8000:8000"
+
+    env_file:
+      - .env
+
+    volumes:
+      - .:/app
+
+    restart: unless-stopped
+EOF
+     #добавить .env
+     #добавить .dockerignor
+     #docker compose up --build -d
+      
+    SHELL
+  end
+end
+
