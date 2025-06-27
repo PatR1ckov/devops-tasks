@@ -1,4 +1,4 @@
-# DevOps Vagrant Lab — PostgreSQL, Traefik, Docker
+# DevOps Lab — PostgreSQL, Traefik, Docker
 
 Набор виртуальных машин для развёртывания инфраструктуры на базе Vagrant + VirtualBox.  
 
