@@ -1,0 +1,118 @@
+- name: Update APT and upgrade packages
+  apt:
+    update_cache: yes
+    upgrade: dist
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Install dependencies for Docker
+  apt:
+    name:
+      - ca-certificates
+      - curl
+    state: present
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Create Docker keyrings directory
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+
+- name: Download Docker GPG key
+  get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    mode: '0644'
+
+- name: Add Docker repository
+  shell: |
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}") stable" > /etc/apt/sources.list.d/docker.list
+  args:
+    executable: /bin/bash
+
+- name: Update APT cache after adding Docker repo
+  apt:
+    update_cache: yes
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Install Docker packages
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Restart required services
+  systemd:
+    name: "{{ item }}"
+    state: restarted
+  loop:
+    - dbus.service
+    - networkd-dispatcher.service
+    - unattended-upgrades.service
+    - user@1000.service
+  ignore_errors: yes
+
+- name: Create project directory
+  file:
+    path: "{{ docker_project_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Clone horilla repo
+  git:
+    repo: "{{ docker_repo_url }}"
+    dest: "{{ docker_project_dir }}/horilla"
+    update: yes
+    force: yes
+  become_user: root
+
+- name: Deploy Dockerfile
+  template:
+    src: Dockerfile.j2
+    dest: "{{ docker_project_dir }}/horilla/Dockerfile"
+
+- name: Deploy docker-compose.yaml
+  template:
+    src: docker-compose.yaml.j2
+    dest: "{{ docker_project_dir }}/horilla/docker-compose.yaml"
+
+- name: Deploy .env file
+  template:
+    src: env.j2
+    dest: "{{ docker_project_dir }}/horilla/.env"
+    owner: root
+    group: root
+    mode: '0600'
+
+- name: Deploy .dockerignore file
+  template:
+    src: dockerignore.j2
+    dest: "{{ docker_project_dir }}/horilla/.dockerignore"
+    owner: root
+    group: root
+    mode: '0600'
+
+
+
+
+
+- name: Check if horilla-container is running
+  command: docker ps --filter "name={{ docker_service_name }}" --filter "status=running" --format '{{"{{.Names}}"}}'
+  register: horilla_container_status
+  changed_when: false
+
+- name: Run docker compose build and up
+  command: docker compose up -d --build
+  args:
+    chdir: "{{ docker_project_dir }}/horilla"
+  when: horilla_container_status.stdout != docker_service_name
+

@@ -1,0 +1,101 @@
+---
+- name: Update APT cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Upgrade all packages
+  apt:
+    upgrade: dist
+  when: apt_upgrade
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Install dependencies
+  apt:
+    name:
+      - curl
+      - ca-certificates
+      - postgresql-common
+    state: present
+    update_cache: yes
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Create pgdp directory
+  file:
+    path: /usr/share/postgresql-common/pgdg
+    state: directory
+
+- name: Download PostgreSQL signing key
+  get_url:
+    url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+    dest: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+
+- name: Get OS name
+  shell: ". /etc/os-release && echo $VERSION_CODENAME"
+  register: os_codename
+  changed_when: false
+
+- name: Add PostgreSQL APT repository
+  copy:
+    content: "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt {{ os_codename.stdout }}-pgdg main"
+    dest: /etc/apt/sources.list.d/pgdg.list
+
+- name: Update Repo
+  apt:
+    update_cache: yes
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Install PostgreSQL
+  apt:
+    name: postgresql
+    state: present
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Get PostgreSQL version
+  shell: "ls /etc/postgresql | head -n1"
+  register: pg_version
+  changed_when: false
+
+- name: Set listen_addresses in postgresql.conf
+  lineinfile:
+    path: "/etc/postgresql/{{ pg_version.stdout }}/main/postgresql.conf"
+    regexp: "^#?#listen_addresses =.*"
+    line: "listen_addresses = '{{ postgresql_listen_addresses }}'"
+    state: present
+  notify: Restart PostgreSQL
+
+- name: Add client access to pg_hba.conf
+  lineinfile:
+    path: "/etc/postgresql/{{ pg_version.stdout }}/main/pg_hba.conf"
+    line: "{{ item }}"
+    insertafter: EOF
+  loop: "{{ postgresql_client_hosts }}"
+  notify: Restart PostgreSQL
+
+- name: Ensure PostgreSQL service is started
+  service:
+    name: postgresql
+    state: started
+
+- name: check if role exists
+  shell: sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='{{ postgresql_user }}'"
+  register: user_exists
+  changed_when: false
+
+- name: create role if not exist
+  shell: sudo -u postgres psql -c "CREATE ROLE {{ postgresql_user }} LOGIN PASSWORD '{{ postgresql_user_password }}';"
+  when: user_exists.stdout != '1'
+
+- name: check if database exists
+  shell: sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='{{ postgresql_db_name }}'"
+  register: db_exists
+  changed_when: false
+
+- name: create database if not exists
+  shell: sudo -u postgres psql -c "CREATE DATABASE {{ postgresql_db_name }} OWNER {{ postgresql_user }};"
+  when: db_exists.stdout != '1'
+

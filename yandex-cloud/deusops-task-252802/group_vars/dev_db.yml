@@ -1,0 +1,7 @@
+
+ansible_user: admindb
+ansible_ssh_private_key_file: /root/.ssh/yandex-key-db01
+postgresql_listen_addresses: "{{ db_ip }}"
+postgresql_client_hosts:
+  - "host    horilla_main    horilla    {{ app_ip }}/32    md5"
+  - "hostssl horilla_main    horilla    {{ app_ip }}/32    md5"

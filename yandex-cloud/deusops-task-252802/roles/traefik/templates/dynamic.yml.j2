@@ -1,0 +1,14 @@
+http:
+  routers:
+    app01-router:
+      rule: "Host(`app.local`)"
+      service: app01-service
+      entryPoints:
+        - web
+      middlewares: []
+
+  services:
+    app01-service:
+      loadBalancer:
+        servers:
+          - url: "http://{{ traefik_service_ip }}:{{ traefik_service_port }}"

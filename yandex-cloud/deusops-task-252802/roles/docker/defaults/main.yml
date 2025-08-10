@@ -1,0 +1,7 @@
+docker_project_dir: "/home/vagrant/horilla"
+docker_repo_url: "https://github.com/horilla-opensource/horilla.git"
+docker_service_name: "horilla-container"
+docker_env_file: ".env"
+docker_dockerfile: "Dockerfile"
+docker_compose_file: "docker-compose.yaml"
+docker_dockerignore_file: ".dockerignore"

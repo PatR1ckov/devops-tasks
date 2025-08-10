@@ -1,0 +1,4 @@
+
+ansible_user: adminweb
+ansible_ssh_private_key_file: /root/.ssh/yandex-key-web01
+traefik_listen_ip: "{{ web_ip }}"

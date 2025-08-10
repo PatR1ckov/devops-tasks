@@ -1,0 +1,18 @@
+- name: Setup PostgreSQL
+  hosts: dev_db
+  become: yes
+  roles:
+    - postgresql
+
+- name: Install Traefik
+  hosts: dev_web
+  become: yes
+  roles:
+    - traefik
+
+- name: Install and configure Docker with Horilla project
+  hosts: dev_app
+  become: yes
+  roles:
+    - docker
+

@@ -1,0 +1,4 @@
+
+ansible_user: adminapp
+ansible_ssh_private_key_file: /root/.ssh/yandex-key-app01
+docker_env_db_host: "{{ db_ip }}"

@@ -1,0 +1,8 @@
+postgresql_listen_addresses: "10.129.0.36"
+postgresql_client_hosts:
+  - "host    horilla_main    horilla    10.129.0.5/32    md5"
+  - "hostssl horilla_main    horilla    10.129.0.5/32    md5"
+postgresql_user: horilla
+postgresql_user_password: horilla
+postgresql_db_name: horilla_main
+apt_upgrade: false

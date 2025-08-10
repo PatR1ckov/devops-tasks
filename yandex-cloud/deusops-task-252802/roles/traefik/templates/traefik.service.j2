@@ -1,0 +1,12 @@
+[Unit]
+Description=Traefik Service
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/traefik --configFile=/home/vagrant/traefik/traefik.yml
+Restart=always
+User=root
+WorkingDirectory=/home/vagrant/traefik
+
+[Install]
+WantedBy=multi-user.target

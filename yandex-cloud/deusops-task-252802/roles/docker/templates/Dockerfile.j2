@@ -1,0 +1,24 @@
+FROM python:3.10-slim
+
+ENV PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential gcc libcairo2-dev libfreetype6-dev libjpeg-dev libxml2-dev libxslt1-dev libffi-dev \
+    libcairo2 libfreetype6 libjpeg62-turbo libxml2 libxslt1.1 libffi-dev \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+RUN chmod -R 777 /usr/local/lib/python3.10/site-packages/django/contrib/auth/migrations || true
+
+USER root
+
+EXPOSE 8000
+
+CMD ["sh", "/app/entrypoint.sh"]
+

@@ -1,0 +1,14 @@
+entryPoints:
+  web:
+    address: "{{ traefik_listen_web }}"
+  websecure:
+    address: "{{ traefik_listen_websecure }}"
+
+providers:
+  file:
+    filename: /home/vagrant/traefik/dynamic.yml
+    watch: true
+
+api:
+  dashboard: true
+  insecure: {{ traefik_dashboard_insecure | lower }}

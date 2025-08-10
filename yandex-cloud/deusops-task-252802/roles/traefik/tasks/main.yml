@@ -1,0 +1,88 @@
+- name: APT Update
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Upgrade packages
+  apt:
+    upgrade: dist
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Install wget
+  apt:
+    name: wget
+    state: present
+    update_cache: yes
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+- name: Ensure Traefik directory exists
+  file:
+    path: /home/vagrant/traefik
+    state: directory
+    mode: '0755'
+
+- name: Download Traefik archive if missing
+  get_url:
+    url: "{{ traefik_download_url }}"
+    dest: /home/vagrant/traefik/traefik.tar.gz
+    mode: '0644'
+  register: download_result
+  until: download_result is succeeded
+  retries: 3
+  delay: 10
+
+- name: Extract Traefik archive if binary missing
+  unarchive:
+    src: /home/vagrant/traefik/traefik.tar.gz
+    dest: /home/vagrant/traefik/
+    remote_src: yes
+  args:
+    creates: /home/vagrant/traefik/traefik
+
+- name: Check if traefik binary is already copied
+  stat:
+    path: /usr/local/bin/traefik
+  register: traefik_bin
+
+- name: Copy traefik binary to /usr/local/bin if missing
+  copy:
+    src: /home/vagrant/traefik/traefik
+    dest: /usr/local/bin/traefik
+    mode: '0755'
+    remote_src: yes
+  when: not traefik_bin.stat.exists
+
+
+
+- name: Add app.local to /etc/hosts
+  lineinfile:
+    path: /etc/hosts
+    line: "{{ traefik_app_host_entry }}"
+    state: present
+
+- name: Deploy traefik.yml
+  template:
+    src: traefik.yml.j2
+    dest: /home/vagrant/traefik/traefik.yml
+
+- name: Deploy dynamic.yml
+  template:
+    src: dynamic.yml.j2
+    dest: /home/vagrant/traefik/dynamic.yml
+
+- name: Deploy Traefik systemd service
+  template:
+    src: traefik.service.j2
+    dest: /etc/systemd/system/traefik.service
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+
+- name: Enable and start Traefik service
+  systemd:
+    name: traefik
+    enabled: yes
+    state: started
